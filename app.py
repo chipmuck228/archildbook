@@ -84,17 +84,18 @@ def generate(book, page):
     if not key:
         raise ValueError("请在终端设置 OPENAI_API_KEY 并重启，或上传插画")
     model = os.environ.get("ARCHILDBOOK_IMAGE_MODEL", "gpt-image-2")
-    references = [book["characters"][index] for index in page["cast"]]
-    if any(not char["ref"] for char in references):
-        raise ValueError("请为出场角色上传参考图")
+    cast = [book["characters"][index] for index in page["cast"]]
+    references = [char for char in cast if char["ref"]]
     prompt = (
         "Illustrate one page of an original children's picture book, ages 5–7. "
         "Warm hand-painted editorial illustration, expressive gestures. No text, letters or logos. "
         "Preserve character identity, age, clothing and palette in the ordered references. "
         f"Market context: {book['market']}. Scene: {page['scene']}. "
-        "Characters in attachment order: " + " | ".join(
-            f"{char['name']}: {char['description']}" for char in references
+        f"Arabic prose for context only, do not render it: {page['text']}. "
+        "Cast: " + " | ".join(
+            f"{char['name']}: {char['description']}" for char in cast
         )
+        + ". References in attachment order: " + ", ".join(char["name"] for char in references)
     )
     boundary = uuid.uuid4().hex
     parts = []
@@ -112,13 +113,17 @@ def generate(book, page):
     for char in references:
         path = asset_path(char["ref"])
         part("image[]", path.read_bytes(), path.name, "image/png" if path.suffix == ".png" else "image/jpeg")
-    if not references:
-        raise ValueError("此页至少需要选择一个带参考图的角色")
-    parts.append(f"--{boundary}--\r\n".encode())
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/images/edits", b"".join(parts),
-        {"Authorization": f"Bearer {key}", "Content-Type": f"multipart/form-data; boundary={boundary}"},
-    )
+    headers = {"Authorization": f"Bearer {key}"}
+    if references:
+        parts.append(f"--{boundary}--\r\n".encode())
+        endpoint = "edits"
+        body = b"".join(parts)
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    else:
+        endpoint = "generations"
+        body = json.dumps({"model": model, "prompt": prompt, "size": "1024x1024", "quality": "medium"}).encode()
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(f"https://api.openai.com/v1/images/{endpoint}", body, headers)
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             result = json.load(response)
@@ -311,8 +316,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.json({"error": "书稿已在其他窗口修改，请刷新后重试"}, 409)
                     if data["action"] == "generate":
                         page = book["pages"][data["index"]]
-                        if (page["text_review"] or {}).get("decision") != "批准" or not page["scene"].strip():
-                            raise ValueError("生成前请批准正文并写好分镜")
+                        if not page["scene"].strip():
+                            raise ValueError("请先保存本页分镜")
                         page["images"].append(generate(book, page))
                     else:
                         revise(book, data["action"], data)
