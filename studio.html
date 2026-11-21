@@ -144,10 +144,18 @@ function exportView(ready){
     +label('作者署名','<input id="author" dir="auto" value="'+html(book.author)+'">')
     +label('目标销售地区','<input id="market" value="'+html(book.market)+'">')
     +'<button class="primary">保存书籍资料</button></form><section class="panel"><h2>固定版式 EPUB</h2>'
+    +(book.cover?image(book.cover,'ref'):'')
+    +label('封面插画','<input id="cover" type="file" accept="image/png,image/jpeg">')
+    +label('封面审核人','<input id="coverReviewer" value="'+html(book.cover_review || localStorage.getItem(reviewerKey))+'">')
+    +'<button id="reviewCover" '+(book.cover?'':'disabled')+'>批准封面</button>'
+    +'<p class="muted">'+(book.cover_review?'封面已批准':'封面待批准')+'</p>'
     +(ready===book.pages.length&&book.author&&book.cover_review?'<a href="/api/books/'+book.id+'/epub">下载 EPUB</a>':'<p class="muted">填写作者署名，并批准封面和所有页面，即可下载。</p>')
     +'<p><a id="audit" href="#">下载书稿和审核记录 JSON</a></p></section></div>'
   $('metadata').onsubmit=e=>{e.preventDefault();action(()=>mutate('metadata',{title:$('title').value,author:$('author').value,market:$('market').value}))}
-  $('cover').onchange=()=>action(async()=>mutate('cover',{image:await fileData($('cover').files[0])}))
+  $('cover').onchange=event=>{
+    const file=event.target.files[0]
+    if(file) action(async()=>mutate('cover',{image:await fileData(file)}))
+  }
   $('reviewCover').onclick=()=>action(()=>mutate('review_cover',{reviewer:$('coverReviewer').value}))
   $('audit').onclick=e=>{
     e.preventDefault()
