@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>童书工作台</title>
+<style>
+:root{color:#292c26;background:#f6f2e8;font:15px system-ui;accent-color:#436554}*{box-sizing:border-box}
+body{margin:0}header{background:#243c33;color:#fff9e9;padding:20px 5%;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+header strong{font-size:23px}button,select,input,textarea{font:inherit}button,select,input,textarea{border:1px solid #c9c6b7;border-radius:6px;background:#fffdf7;padding:8px;color:#292c26}button{cursor:pointer}button:hover{border-color:#3b6452}
+.primary,[aria-current=true]{background:#365848;color:#fff;border-color:#365848}main{max-width:1440px;margin:auto;padding:24px 4%}
+h1{font-size:30px;margin:6px 0}h2{font-size:18px}small,.muted{color:#606553}nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start}.panel{background:#fffaf0;border:1px solid #ded6c3;padding:20px;border-radius:10px}
+.preview{background:#fffaf0;border:1px solid #ded6c3;padding:6%;min-height:330px;text-align:right;max-width:580px;margin:auto}.preview p{white-space:pre-wrap;line-height:1.8;font-size:clamp(20px,3vw,31px)}
+.art{display:grid;place-items:center;aspect-ratio:1;background:#eee6d4;color:#666;overflow:hidden}.art img{width:100%;height:100%;object-fit:contain}
+label.field{display:grid;gap:6px;margin:12px 0}textarea{width:100%;resize:vertical;min-height:78px}textarea[dir=rtl]{font-size:20px;line-height:1.7}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.tiles{display:flex;gap:10px;flex-wrap:wrap}.tiles figure{margin:0;width:112px}.tiles img,.ref{width:105px;height:92px;object-fit:contain;background:#eee6d4}.tiles button{width:100%}
+@keyframes drift{from{transform:scale(1)}to{transform:scale(1.09)}}.moving img{animation:drift 3s ease-in-out both}@media(prefers-reduced-motion:reduce){.moving img{animation:none}}
+#status{min-height:22px;color:#754222}fieldset{border:1px solid #ded6c3;margin:12px 0}details{margin:15px 0}summary{cursor:pointer}a{color:#365848}button:disabled{opacity:.5;cursor:default}
+@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:15px}}
+</style>
+<header><strong>童书工作台</strong><select id="books" aria-label="书库"></select><button id="new">新建书稿</button></header>
+<main><div id="status" role="status"></div><div id="content"></div></main>
+<script type="module">
+const $ = id => document.getElementById(id)
+const html = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+let books = [], book, index = 0, ai = false, tab = '分镜', busy = false, dirty = false
+const reviewerKey = 'archildbook-reviewer'
+const label = (name, control) => '<label class="field">'+name+control+'</label>'
+const asset = id => '/assets/'+encodeURIComponent(id)
+const image = (id, cls='') => '<img class="'+cls+'" src="'+asset(id)+'" alt="插画">'
+function switchView(run){
+  if (dirty && !confirm('当前修改尚未保存，继续切换？')) return
+  dirty = false
+  run()
+  render()
+}
+async function api(url, data){
+  const response = await fetch(url, data ? {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify(data)} : {})
+  const body = await response.json()
+  if (!response.ok) throw Error(body.error)
+  return body
+}
+function status(message){ $('status').textContent = message }
+async function action(run, waiting='正在保存…'){
+  if (busy) return
+  busy = true
+  document.querySelector('main').inert = true
+  $('books').disabled = $('new').disabled = true
+  status(waiting)
+  try { await run(); status('已完成') }
+  catch (e) { status(e.message) }
+  finally { busy = false; document.querySelector('main').inert = false; $('books').disabled = $('new').disabled = false }
+}
+async function mutate(actionName, fields={}){
+  const result = await api('/api/edit',{id:book.id,version:book.version,index,action:actionName,...fields})
+  books[books.findIndex(item=>item.id===book.id)] = result
+  book = result
+  dirty = false
+  render()
+}
+function fileData(file){
+  if (!file || file.size > 10 * 1024 * 1024) throw Error('请选择 10 MB 以内的 PNG 或 JPEG')
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader()
+    reader.onload = ()=>resolve(reader.result.split(',')[1])
+    reader.onerror = ()=>reject(Error('无法读取图片'))
+    reader.readAsDataURL(file)
+  })
+}
+function render(){
+  $('books').innerHTML = books.map(item=>'<option value="'+item.id+'">'+html(item.title)+'</option>').join('')
+  $('books').value = book.id
+  const approved = review=>review?.decision === '批准'
+  const ready = book.pages.filter(page=>approved(page.text_review)&&approved(page.art_review)).length
+  $('content').innerHTML = '<small>目标市场 · '+html(book.market)+'</small><h1 lang="ar" dir="auto">'+html(book.title)+'</h1><small>'+ready+' / '+book.pages.length+' 页通过双审 · 版本 '+book.version+'</small>'
+    + '<nav aria-label="工作区">'+['分镜','角色参考','书籍与导出'].map(name=>'<button data-tab="'+name+'" aria-current="'+(tab===name)+'">'+name+'</button>').join('')+'</nav><section id="view"></section>'
+  document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>switchView(()=>{tab=button.dataset.tab}))
+  if (tab==='分镜') storyboard()
+  if (tab==='角色参考') characters()
+  if (tab==='书籍与导出') exportView(ready)
+}
+function storyboard(){
+  const page = book.pages[index]
+  const review = (kind, title) => {
+    const result = page[kind+'_review']
+    return '<fieldset><legend>'+title+'</legend><p class="muted">'+(result ? html(result.decision+' · '+result.reviewer+' · '+result.note) : '待审')+'</p><div class="row"><button data-review="'+kind+'" data-decision="批准">批准</button><button data-review="'+kind+'" data-decision="退回">退回修改</button></div></fieldset>'
+  }
+  $('view').innerHTML = '<nav aria-label="页码" dir="rtl">'+book.pages.map((_,i)=>'<button data-page="'+i+'" aria-current="'+(index===i)+'">'+(i+1)+'</button>').join('')+'<button id="addPage">＋ 页面</button></nav>'
+    + '<div class="grid"><section><div class="preview" lang="ar" dir="rtl"><div class="art">'+(page.selected ? image(page.selected) : 'بانتظار الرسم')+'</div><p id="previewText">'+html(page.text)+'</p></div>'
+    + (page.selected?'<div class="row"><button id="animate">动态试读 · 缓慢推近</button></div>':'')
+    + '<h2>插画候选</h2><div class="tiles">'+page.images.map(item=>'<figure>'+image(item.id)+'<figcaption><small>'+html(item.source)+'</small></figcaption><button data-image="'+item.id+'">'+(item.id===page.selected?'已选':'选用')+'</button></figure>').join('')+'</div>'
+    + '<div class="row"><label>上传候选 <input id="upload" type="file" accept="image/png,image/jpeg"></label><button id="generate" '+(!ai?'disabled title="配置 OPENAI_API_KEY 后可用"':'')+'>参考图生成候选</button></div></section>'
+    + '<section class="panel"><h2>第 '+(index+1)+' 页</h2>'
+    + label('阿语正文','<textarea id="text" lang="ar" dir="rtl">'+html(page.text)+'</textarea>')
+    + label('插画分镜','<textarea id="scene">'+html(page.scene)+'</textarea>')
+    + '<fieldset><legend>出场角色</legend><div class="row">'+book.characters.map((item,i)=>'<label><input type="checkbox" value="'+i+'" '+(page.cast.includes(i)?'checked':'')+'> '+html(item.name)+'</label>').join('')+'</div></fieldset>'
+    + '<button class="primary" id="save">保存本页</button><h2>人工审核</h2>'
+    + label('审核人','<input id="reviewer" value="'+html(localStorage.getItem(reviewerKey))+'">')
+    + label('本次审核意见','<input id="note">')+review('text','阿语正文')+review('art','图文与文化')+'</section></div>'
+  document.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>switchView(()=>{index=Number(button.dataset.page)}))
+  if ($('animate')) $('animate').onclick=()=>{
+    const art=document.querySelector('.preview .art')
+    art.classList.remove('moving')
+    requestAnimationFrame(()=>requestAnimationFrame(()=>art.classList.add('moving')))
+  }
+  $('text').oninput=()=>{dirty=true;$('previewText').textContent=$('text').value}
+  $('scene').oninput=()=>{dirty=true}
+  document.querySelectorAll('input[type=checkbox]').forEach(input=>input.onchange=()=>{dirty=true})
+  function saved(run){ if(dirty) return status('请先保存本页'); action(run) }
+  $('save').onclick=()=>action(()=>mutate('edit',{text:$('text').value,scene:$('scene').value,cast:[...document.querySelectorAll('input:checked')].map(input=>Number(input.value))}))
+  $('addPage').onclick=()=>saved(async()=>{await mutate('add_page');index=book.pages.length-1;render()})
+  $('upload').onchange=()=>{const file=$('upload').files[0];if(file)saved(async()=>mutate('upload',{image:await fileData(file)}))}
+  $('generate').onclick=()=>{
+    if(dirty) return status('请先保存本页')
+    if(confirm('向图像服务提交本页分镜和出场角色参考图，可能产生费用。继续？'))
+      action(()=>mutate('generate'),'正在生成插画，请保留此窗口…')
+  }
+  document.querySelectorAll('[data-image]').forEach(button=>button.onclick=()=>saved(()=>mutate('select',{asset:button.dataset.image})))
+  document.querySelectorAll('[data-review]').forEach(button=>button.onclick=()=>saved(()=>{
+    const reviewer=$('reviewer').value
+    localStorage.setItem(reviewerKey,reviewer)
+    return mutate('review',{kind:button.dataset.review,decision:button.dataset.decision,reviewer,note:$('note').value})
+  }))
+}
+function characters(){
+  $('view').innerHTML = '<div class="grid">'+[...book.characters,{name:'',description:'',ref:''}].map((char,i)=>
+    '<form class="panel" data-character="'+i+'"><h2>'+html(char.name||'新增角色')+'</h2>'
+    +label('角色名称','<input name="name" required value="'+html(char.name)+'">')
+    +label('外观与固定特征','<textarea name="description">'+html(char.description)+'</textarea>')
+    +(char.ref?image(char.ref,'ref'):'')
+    +'<div class="row"><button class="primary">保存角色</button>'
+    +(i<book.characters.length?'<label>参考图 <input name="reference" type="file" accept="image/png,image/jpeg"></label>':'')+'</div></form>').join('')+'</div>'
+  document.querySelectorAll('[data-character]').forEach(form=>{
+    const characterIndex=Number(form.dataset.character)
+    form.onsubmit=e=>{e.preventDefault();action(()=>mutate('character',{index:characterIndex,name:form.elements.name.value,description:form.elements.description.value}))}
+    const input=form.elements.reference
+    if(input) input.onchange=()=>action(async()=>mutate('character',{index:characterIndex,image:await fileData(input.files[0])}))
+  })
+}
+function exportView(ready){
+  $('view').innerHTML='<div class="grid"><form class="panel" id="metadata"><h2>书籍资料</h2>'
+    +label('书名','<input id="title" dir="rtl" required value="'+html(book.title)+'">')
+    +label('作者署名','<input id="author" dir="auto" value="'+html(book.author)+'">')
+    +label('目标销售地区','<input id="market" value="'+html(book.market)+'">')
+    +'<button class="primary">保存书籍资料</button></form><section class="panel"><h2>固定版式 EPUB</h2>'
+    +(ready===book.pages.length&&book.author&&book.cover_review?'<a href="/api/books/'+book.id+'/epub">下载 EPUB</a>':'<p class="muted">填写作者署名，并批准封面和所有页面，即可下载。</p>')
+    +'<p><a id="audit" href="#">下载书稿和审核记录 JSON</a></p></section></div>'
+  $('metadata').onsubmit=e=>{e.preventDefault();action(()=>mutate('metadata',{title:$('title').value,author:$('author').value,market:$('market').value}))}
+  $('cover').onchange=()=>action(async()=>mutate('cover',{image:await fileData($('cover').files[0])}))
+  $('reviewCover').onclick=()=>action(()=>mutate('review_cover',{reviewer:$('coverReviewer').value}))
+  $('audit').onclick=e=>{
+    e.preventDefault()
+    const url=URL.createObjectURL(new Blob([JSON.stringify(book,null,2)],{type:'application/json'}))
+    const link=document.createElement('a');link.href=url;link.download='book-review.json';link.click()
+    setTimeout(()=>URL.revokeObjectURL(url),1000)
+  }
+}
+$('books').onchange=()=>{
+  const selected=$('books').value
+  switchView(()=>{book=books.find(item=>item.id===selected);index=0})
+  $('books').value=book.id
+}
+$('new').onclick=()=>{
+  if (dirty) return status('请先保存本页')
+  const title=prompt('请输入书名')
+  if(title?.trim())action(async()=>{book=await api('/api/books',{title});books.push(book);index=0;tab='分镜';render()})
+}
+try { ({books,ai}=await api('/api/books'));book=books[0];render() }
+catch (error) {status(error.message)}
+</script>
+</html>
