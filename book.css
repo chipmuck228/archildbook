@@ -1,0 +1,15 @@
+.book-page{box-sizing:border-box;position:relative;width:100%;aspect-ratio:3/4;background:#fff8ed;color:#34271e;font-family:"Geeza Pro","Noto Naskh Arabic","Amiri",serif;text-align:right;container-type:inline-size}
+.book-page .book-art{position:absolute;inset:5% 6% 35%;display:grid;place-items:center;background:#f1e5d1;overflow:hidden}
+.book-page .book-art img{width:100%;height:100%;object-fit:contain}
+.book-page .book-copy{position:absolute;inset:69% 9% auto;line-height:1.58;font-size:36px;font-size:4.15cqw;white-space:pre-line;overflow-wrap:anywhere;margin:0}
+.book-page .book-copy p{margin:0 0 .26em}
+.book-page[data-layout="quiet"]{background:#f0eee0}
+.book-page[data-layout="quiet"] .book-art{inset:8% 16% 48%;border-radius:50% 50% 2% 2%}
+.book-page[data-layout="quiet"] .book-copy{inset:58% 12% auto;text-align:center}
+.book-page[data-layout="edge"] .book-art{inset:0 0 38%;background:#e6d4ba}
+.book-page[data-layout="edge"] .book-art img{object-fit:cover}
+.book-page[data-layout="edge"] .book-copy{inset:67% 9% auto}
+.book-page[data-layout="cover"]{background:#ead7b5;text-align:center}
+.book-page[data-layout="cover"] .book-art{inset:29% 8% 12%;border-radius:48% 48% 2% 2%}
+.book-page .book-title{position:absolute;inset:5% 8% auto;margin:0;font-size:52px;font-size:6.2cqw;line-height:1.35}
+.book-page .book-byline{position:absolute;inset:auto 8% 4%;margin:0;font-size:26px;font-size:3.2cqw}

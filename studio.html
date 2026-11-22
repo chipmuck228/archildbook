@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>童书工作台</title>
+<link rel="stylesheet" href="/book.css">
 <style>
 :root{color:#292c26;background:#f6f2e8;font:15px system-ui;accent-color:#436554}*{box-sizing:border-box}
 body{margin:0}header{background:#243c33;color:#fff9e9;padding:20px 5%;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
@@ -10,8 +11,8 @@ header strong{font-size:23px}button,select,input,textarea{font:inherit}button,se
 .primary,[aria-current=true]{background:#365848;color:#fff;border-color:#365848}main{max-width:1440px;margin:auto;padding:24px 4%}
 h1{font-size:30px;margin:6px 0}h2{font-size:18px}small,.muted{color:#606553}nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start}.panel{background:#fffaf0;border:1px solid #ded6c3;padding:20px;border-radius:10px}
-.preview{background:#fffaf0;border:1px solid #ded6c3;padding:6%;min-height:330px;text-align:right;max-width:580px;margin:auto}.preview p{white-space:pre-wrap;line-height:1.8;font-size:clamp(20px,3vw,31px)}
-.art{display:grid;place-items:center;aspect-ratio:1;background:#eee6d4;color:#666;overflow:hidden}.art img{width:100%;height:100%;object-fit:contain}
+.preview{max-width:580px;margin:0 auto 16px;box-shadow:0 10px 30px #44301c20}.preview .book-art{align-content:center}.preview .book-copy{white-space:pre-line}
+
 label.field{display:grid;gap:6px;margin:12px 0}textarea{width:100%;resize:vertical;min-height:78px}textarea[dir=rtl]{font-size:20px;line-height:1.7}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.tiles{display:flex;gap:10px;flex-wrap:wrap}.tiles figure{margin:0;width:112px}.tiles img,.ref{width:105px;height:92px;object-fit:contain;background:#eee6d4}.tiles button{width:100%}
 @keyframes drift{from{transform:scale(1)}to{transform:scale(1.09)}}.moving img{animation:drift 3s ease-in-out both}@media(prefers-reduced-motion:reduce){.moving img{animation:none}}
@@ -26,6 +27,7 @@ const html = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;'
 let books = [], book, index = 0, ai = false, tab = '分镜', busy = false, dirty = false
 const reviewerKey = 'archildbook-reviewer'
 const label = (name, control) => '<label class="field">'+name+control+'</label>'
+const paragraphs = text => text.split(/\r?\n/).filter(line=>line.trim()).map(line=>'<p>'+html(line)+'</p>').join('')
 const asset = id => '/assets/'+encodeURIComponent(id)
 const image = (id, cls='') => '<img class="'+cls+'" src="'+asset(id)+'" alt="插画">'
 function switchView(run){
@@ -86,12 +88,13 @@ function storyboard(){
     return '<fieldset><legend>'+title+'</legend><p class="muted">'+(result ? html(result.decision+' · '+result.reviewer+' · '+result.note) : '待审')+'</p><div class="row"><button data-review="'+kind+'" data-decision="批准">批准</button><button data-review="'+kind+'" data-decision="退回">退回修改</button></div></fieldset>'
   }
   $('view').innerHTML = '<nav aria-label="页码" dir="rtl">'+book.pages.map((_,i)=>'<button data-page="'+i+'" aria-current="'+(index===i)+'">'+(i+1)+(book.pages[i].art_review?.decision==='批准'?' ✓':book.pages[i].images.length?' ·':'')+'</button>').join('')+'<button id="addPage">＋ 页面</button></nav>'
-    + '<div class="grid"><section><div class="preview" lang="ar" dir="rtl"><div class="art">'+(page.selected ? image(page.selected) : 'بانتظار الرسم')+'</div><p id="previewText">'+html(page.text)+'</p></div>'
+    + '<div class="grid"><section><div class="preview book-page" id="bookPreview" data-layout="'+html(page.layout||'framed')+'" lang="ar" dir="rtl"><div class="book-art">'+(page.selected ? image(page.selected) : 'بانتظار الرسم')+'</div><div class="book-copy" id="previewText">'+paragraphs(page.text)+'</div></div>'
     + (page.selected?'<div class="row"><button id="animate">动态试读 · 缓慢推近</button></div>':'')
     + '<h2>插画候选</h2><div class="tiles">'+page.images.map(item=>'<figure>'+image(item.id)+'<figcaption><small>'+html(item.source)+'</small></figcaption><button data-image="'+item.id+'">'+(item.id===page.selected?'已选':'选用')+'</button></figure>').join('')+'</div>'
     + '<div class="row"><label>上传候选 <input id="upload" type="file" accept="image/png,image/jpeg"></label><button id="generate" '+(!ai?'disabled title="配置 OPENAI_API_KEY 后可用"':'')+'>生成本页插画</button></div>'+(index+1<book.pages.length?'<button id="nextPage">下一分镜</button>':'')+'</section>'
     + '<section class="panel"><h2>第 '+(index+1)+' 页</h2>'
     + label('阿语正文','<textarea id="text" lang="ar" dir="rtl">'+html(page.text)+'</textarea>')
+    + label('内页版式','<select id="layout">'+Object.entries({framed:'留白插画',edge:'通栏插画（可裁切）',quiet:'安静页'}).map(([key,name])=>'<option value="'+key+'" '+((page.layout||'framed')===key?'selected':'')+'>'+name+'</option>').join('')+'</select>')
     + label('插画分镜','<textarea id="scene">'+html(page.scene)+'</textarea>')
     + '<fieldset><legend>出场角色</legend><div class="row">'+book.characters.map((item,i)=>'<label><input type="checkbox" value="'+i+'" '+(page.cast.includes(i)?'checked':'')+'> '+html(item.name)+'</label>').join('')+'</div></fieldset>'
     + '<button class="primary" id="save">保存本页</button><h2>人工审核</h2>'
@@ -99,15 +102,16 @@ function storyboard(){
     + label('本次审核意见','<input id="note">')+review('text','阿语正文')+review('art','图文与文化')+'</section></div>'
   document.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>switchView(()=>{index=Number(button.dataset.page)}))
   if ($('animate')) $('animate').onclick=()=>{
-    const art=document.querySelector('.preview .art')
+    const art=document.querySelector('.preview .book-art')
     art.classList.remove('moving')
     requestAnimationFrame(()=>requestAnimationFrame(()=>art.classList.add('moving')))
   }
-  $('text').oninput=()=>{dirty=true;$('previewText').textContent=$('text').value}
+  $('text').oninput=()=>{dirty=true;$('previewText').innerHTML=paragraphs($('text').value)}
+  $('layout').onchange=()=>{dirty=true;$('bookPreview').dataset.layout=$('layout').value}
   $('scene').oninput=()=>{dirty=true}
   document.querySelectorAll('input[type=checkbox]').forEach(input=>input.onchange=()=>{dirty=true})
   function saved(run){ if(dirty) return status('请先保存本页'); action(run) }
-  $('save').onclick=()=>action(()=>mutate('edit',{text:$('text').value,scene:$('scene').value,cast:[...document.querySelectorAll('input:checked')].map(input=>Number(input.value))}))
+  $('save').onclick=()=>action(()=>mutate('edit',{layout:$('layout').value,text:$('text').value,scene:$('scene').value,cast:[...document.querySelectorAll('input:checked')].map(input=>Number(input.value))}))
   $('addPage').onclick=()=>saved(async()=>{await mutate('add_page');index=book.pages.length-1;render()})
   $('upload').onchange=()=>{const file=$('upload').files[0];if(file)saved(async()=>mutate('upload',{image:await fileData(file)}))}
   if ($('nextPage')) $('nextPage').onclick=()=>switchView(()=>{index++})
@@ -144,7 +148,7 @@ function exportView(ready){
     +label('作者署名','<input id="author" dir="auto" value="'+html(book.author)+'">')
     +label('目标销售地区','<input id="market" value="'+html(book.market)+'">')
     +'<button class="primary">保存书籍资料</button></form><section class="panel"><h2>固定版式 EPUB</h2>'
-    +(book.cover?image(book.cover,'ref'):'')
+    +(book.cover?'<div class="preview book-page" data-layout="cover" lang="ar" dir="rtl"><h2 class="book-title">'+html(book.title)+'</h2><div class="book-art">'+image(book.cover)+'</div><p class="book-byline">'+html(book.author)+'</p></div>':'')
     +label('封面插画','<input id="cover" type="file" accept="image/png,image/jpeg">')
     +label('封面审核人','<input id="coverReviewer" value="'+html(book.cover_review || localStorage.getItem(reviewerKey))+'">')
     +'<button id="reviewCover" '+(book.cover?'':'disabled')+'>批准封面</button>'

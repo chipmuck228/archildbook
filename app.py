@@ -19,6 +19,7 @@ DATA = Path(os.environ.get("ARCHILDBOOK_DATA", ROOT / "data")).resolve()
 ASSETS = DATA / "assets"
 SAMPLE = json.loads((ROOT / "sample.json").read_text(encoding="utf-8"))
 LIMIT = 14 * 1024 * 1024
+PAGE_LAYOUTS = {"framed", "edge", "quiet"}
 PNG = b"\x89PNG\r\n\x1a\n"
 
 
@@ -175,11 +176,16 @@ def revise(book, action, data):
     if action == "edit":
         if any(type(i) is not int or not 0 <= i < len(book["characters"]) for i in data["cast"]):
             raise ValueError("角色选择无效")
+        layout = data.get("layout", page.get("layout", "framed"))
+        if layout not in PAGE_LAYOUTS:
+            raise ValueError("未知版式")
         if page["text"] != data["text"]:
             page["text_review"] = None
-        if any(page[field] != data[field] for field in ("text", "scene", "cast")):
+        if layout != page.get("layout", "framed") or any(
+            page[field] != data[field] for field in ("text", "scene", "cast")
+        ):
             page["art_review"] = None
-        page.update(text=data["text"], scene=data["scene"], cast=data["cast"])
+        page.update(text=data["text"], scene=data["scene"], cast=data["cast"], layout=layout)
     elif action == "upload":
         page["images"].append({"id": save_asset(base64.b64decode(data["image"], validate=True)), "source": "上传"})
     elif action == "select":
@@ -217,6 +223,8 @@ def epub(book):
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
 <rootfiles><rootfile full-path="OEBPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""")
         manifest.append('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>')
+        archive.write(ROOT / "book.css", "OEBPS/book.css")
+        manifest.append('<item id="style" href="book.css" media-type="text/css"/>')
         cover_path = asset_path(book["cover"])
         cover_name = "cover" + cover_path.suffix
         cover_media = "png" if cover_path.suffix == ".png" else "jpeg"
@@ -225,10 +233,10 @@ def epub(book):
         manifest.append('<item id="front" href="front.xhtml" media-type="application/xhtml+xml"/>')
         spine.append('<itemref idref="front"/>')
         archive.writestr("OEBPS/front.xhtml", f"""<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ar" dir="rtl">
-<head><title>{title}</title><meta name="viewport" content="width=900,height=1200"/></head>
-<body style="margin:60px;text-align:center;background:#fff8ec;font-size:42px"><h1>{title}</h1>
-<img src="{cover_name}" alt="" style="width:780px;height:760px;object-fit:contain"/>
-<p>{escape(book["author"])}</p></body></html>""")
+<head><title>{title}</title><meta name="viewport" content="width=900,height=1200"/><link rel="stylesheet" href="book.css"/><style>html,body{{margin:0}} .book-page{{width:900px;height:1200px}}</style></head>
+<body><main class="book-page" data-layout="cover"><h1 class="book-title">{title}</h1>
+<div class="book-art"><img src="{cover_name}" alt=""/></div>
+<p class="book-byline">{escape(book["author"])}</p></main></body></html>""")
         for number, page in enumerate(book["pages"], 1):
             path = asset_path(page["selected"])
             name = f"art-{number}{path.suffix}"
@@ -242,9 +250,8 @@ def epub(book):
             archive.writestr(f"OEBPS/p{number}.xhtml", f"""<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ar" lang="ar" dir="rtl">
 <head><title>{title}</title><meta name="viewport" content="width=900,height=1200"/>
-<style>body{{margin:60px;background:#fff8ec;color:#241d18;font-family:serif;line-height:1.7;font-size:36px}}
-img{{width:780px;height:660px;object-fit:contain}} p{{margin:0 0 14px}}</style></head>
-<body><img src="{name}" alt=""/>{paragraphs}</body></html>""")
+<link rel="stylesheet" href="book.css"/><style>html,body{{margin:0}} .book-page{{width:900px;height:1200px}}</style></head>
+<body><main class="book-page" data-layout="{page.get('layout', 'framed')}"><div class="book-art"><img src="{name}" alt=""/></div><div class="book-copy">{paragraphs}</div></main></body></html>""")
         archive.writestr("OEBPS/nav.xhtml", f"""<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ar" dir="rtl">
 <head><title>المحتويات</title></head><body><nav epub:type="toc"><h1>المحتويات</h1><ol>{''.join(links)}</ol></nav></body></html>""")
         modified = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -276,6 +283,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/":
                 self.send((ROOT / "studio.html").read_bytes(), "text/html; charset=utf-8")
+            elif self.path == "/book.css":
+                self.send((ROOT / "book.css").read_bytes(), "text/css; charset=utf-8")
             elif parts[1] == "assets" and len(parts) == 3:
                 path = asset_path(parts[2])
                 self.send(path.read_bytes(), "image/png" if path.suffix == ".png" else "image/jpeg")
